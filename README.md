@@ -1,20 +1,87 @@
 # BLE Printer Bridge
 
-Lightweight local HTTP bridge for sending ESC/POS print data to BLE receipt printers.
+**BLE Printer Bridge is a local Go service that lets web or desktop apps print ESC/POS receipts to Bluetooth Low Energy (BLE) printers through a simple HTTP API, solving the browser/OS limitations of direct BLE printing.**
 
-**Suggested GitHub repository description:**
+BLE printer support from browsers and cross-platform app runtimes is often inconsistent or restricted. This project provides a stable localhost bridge so your app can print receipts without implementing low-level BLE logic in every client.
 
-`Local Go HTTP bridge that connects web apps to BLE receipt printers (ESC/POS) with API-key auth, CORS controls, and runtime config updates.`
+## Who this is for
 
-## What it does
+This project is for developers building POS, kiosk, order, queue, or receipt workflows who need reliable local printing from:
 
-- Exposes a local API (default `127.0.0.1:17800`).
-- Scans, connects, disconnects, and inspects BLE devices.
-- Sends receipt data as:
-  - structured text (`/print/text`), or
-  - raw bytes via base64 (`/print/raw`).
-- Persists runtime configuration updates to `config.toml`.
-- Writes logs to file and optionally to console.
+- Web apps running in a browser
+- Electron or desktop helper apps
+- Local line-of-business tools that can call HTTP APIs
+
+Use it when you want one small local service that handles BLE discovery/connection and ESC/POS writes, while your app stays focused on business logic.
+
+## Quick start
+
+1. **Set up config**
+
+```powershell
+Copy-Item .\config.example.toml .\config.toml
+```
+
+2. **Edit `config.toml`**
+   - Set `auth.api_key`
+   - Set BLE printer details (`printer_address`, service/characteristic UUIDs) as needed
+
+3. **Run the bridge**
+
+```powershell
+go run .\cmd\agent
+```
+
+4. **Verify service health**
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:17800/health
+```
+
+5. **Send a test print**
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:17800/print/text `
+  -Method POST `
+  -Headers @{ "x-api-key"="your-local-api-key" } `
+  -Body (@{ text = "Hello from BLE Printer Bridge" } | ConvertTo-Json) `
+  -ContentType "application/json"
+```
+
+## Features
+
+- Localhost HTTP API for BLE printer workflows
+- BLE scan, connect, disconnect, and status endpoints
+- ESC/POS text print endpoint and raw-byte print endpoint (base64)
+- API-key protection for non-health endpoints
+- Config file + runtime config update endpoint
+- Configurable CORS allowlists/patterns
+- File logging with optional console verbosity
+- Backward-compatible CORS environment variable names
+
+## When to use this vs alternatives
+
+### Use BLE Printer Bridge when
+
+- You need to print from a browser or local app to **BLE-only ESC/POS printers**
+- You want a **self-hosted local bridge** instead of cloud relay services
+- You need a simple API contract between application and printer transport
+
+### Consider alternatives when
+
+- Your printers are network/LAN printers (TCP/9100 may be simpler)
+- Your environment already has a managed print spooler or printer gateway
+- You need vendor SDK features beyond standard ESC/POS operations
+
+## Why this exists
+
+Many teams can generate receipt data but get blocked on the last mile: secure, reliable communication with local BLE receipt printers from modern app runtimes. This bridge isolates that hardware complexity into one local process.
+
+## When not to use it
+
+- If you cannot run local companion software on the client machine
+- If your printers are not BLE-capable
+- If your use case requires cloud-only, zero-local-install architecture
 
 ## Requirements
 
@@ -23,50 +90,12 @@ Lightweight local HTTP bridge for sending ESC/POS print data to BLE receipt prin
 - Bluetooth-enabled machine
 - BLE printer advertising
 
-## Run the bridge
-
-### Option 1: Start directly (PowerShell)
-
-```powershell
-go run .\cmd\agent
-```
-
-The bridge reads `config.toml` from the repository root.
-
-For a fresh setup:
-
-```powershell
-Copy-Item .\config.example.toml .\config.toml
-```
-
-Then replace placeholder values in `config.toml` with your local BLE and API key settings.
-
-### Option 2: Start from batch script (recommended for Windows operators)
-
-Use `scripts/batch/turn-on-agent.bat`.
-
-What it does:
-
-- Resolves the repository root from the script location.
-- Starts the bridge in a separate terminal window.
-- Waits briefly for startup.
-- Runs a quick `/health` check using PowerShell.
-
-```powershell
-.\scripts\batch\turn-on-agent.bat
-```
-
-Related helper scripts:
-
-- `scripts/batch/connet-to-printer.bat` → starts the bridge, connects to configured BLE address, and prints a quick test line.
-- `scripts/batch/config-endpoints-test.bat` → starts the bridge, exercises `/config` read/update endpoints.
-
 ## Configuration
 
-Main settings are in `config.toml`:
+Primary settings live in `config.toml`:
 
 - `server.host`, `server.port`
-- `auth.api_key` (set this to a strong local secret)
+- `auth.api_key`
 - `ble.device_name_contains`
 - `ble.printer_address`
 - `ble.service_uuid`
@@ -78,16 +107,14 @@ Main settings are in `config.toml`:
 - `cors.allow_origins`
 - `cors.allow_origin_patterns`
 
-Environment variable overrides supported:
+Environment variable overrides:
 
 - `BRIDGE_CORS_ALLOW_ORIGINS`
 - `BRIDGE_CORS_ALLOW_ORIGIN_PATTERNS`
-- `AGENT_CORS_ALLOW_ORIGINS`
-- `AGENT_CORS_ALLOW_ORIGIN_PATTERNS`
+- `AGENT_CORS_ALLOW_ORIGINS` (backward compatibility)
+- `AGENT_CORS_ALLOW_ORIGIN_PATTERNS` (backward compatibility)
 
-`AGENT_*` variables are still accepted for backward compatibility.
-
-## Auth
+## API overview
 
 All endpoints except `/health` require:
 
@@ -95,18 +122,14 @@ All endpoints except `/health` require:
 x-api-key: <your_api_key>
 ```
 
-## API
-
 ### Health
 
-- `GET /health` (no auth)
+- `GET /health`
 
 ### BLE
 
 - `POST /ble/scan`
-  - body: `{ "seconds": 8 }` (optional; defaults to 8)
 - `POST /ble/connect`
-  - body: `{ "address": "AA:BB:CC:DD:EE:FF" }`
 - `POST /ble/disconnect`
 - `GET /ble/status`
 - `POST /ble/describe`
@@ -114,66 +137,15 @@ x-api-key: <your_api_key>
 ### Print
 
 - `POST /print/text`
-  - body: `{ "text": "Hello" }`
-  - behavior: wraps text with ESC/POS init + newline (if missing) + partial cut
 - `POST /print/raw`
-  - body: `{ "base64": "..." }`
 
 ### Config
 
 - `GET /config`
 - `POST /config`
-  - body: full config object
-  - saves updated config to `config.toml`
-
-## Quick examples (PowerShell)
-
-### Health
-
-```powershell
-Invoke-RestMethod http://127.0.0.1:17800/health
-```
-
-### Scan
-
-```powershell
-Invoke-RestMethod http://127.0.0.1:17800/ble/scan `
-  -Method POST `
-  -Headers @{ "x-api-key"="pos-local-print-2026-demo-key" } `
-  -Body (@{ seconds = 8 } | ConvertTo-Json) `
-  -ContentType "application/json"
-```
-
-### Connect
-
-```powershell
-Invoke-RestMethod http://127.0.0.1:17800/ble/connect `
-  -Method POST `
-  -Headers @{ "x-api-key"="pos-local-print-2026-demo-key" } `
-  -Body (@{ address = "66:22:B6:5C:5C:3C" } | ConvertTo-Json) `
-  -ContentType "application/json"
-```
-
-### Print text
-
-```powershell
-Invoke-RestMethod http://127.0.0.1:17800/print/text `
-  -Method POST `
-  -Headers @{ "x-api-key"="pos-local-print-2026-demo-key" } `
-  -Body (@{ text = "Test print" } | ConvertTo-Json) `
-  -ContentType "application/json"
-```
 
 ## Notes
 
-- `config.example.toml` is safe to commit and share; keep your real `config.toml` values private.
-
-- If `logging.file_path` points to a non-existing directory, it is created automatically.
+- Keep real `config.toml` values private.
+- If `logging.file_path` points to a missing directory, it is created automatically.
 - BLE scan is single-flight; concurrent scans are rejected.
-
-## Web app integration impact
-
-- No API path changes were made (`/health`, `/ble/*`, `/print/*`, `/config` are unchanged).
-- No request/response contract changes were made.
-- Existing clients can keep using `x-api-key` and the same bridge host/port settings.
-- If your deployment tooling used `AGENT_CORS_*` environment variables, they still work; `BRIDGE_CORS_*` is now also supported.
