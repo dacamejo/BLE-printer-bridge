@@ -1,0 +1,10 @@
+# Local runtime config (keep example tracked)
+config.toml
+
+# Runtime logs
+logs/
+*.log
+
+# Build output
+bin/
+*.exe
