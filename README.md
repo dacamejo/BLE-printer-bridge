@@ -1,8 +1,25 @@
 # BLE Printer Bridge
 
-**BLE Printer Bridge is a local Go service that lets web or desktop apps print ESC/POS receipts to Bluetooth Low Energy (BLE) printers through a simple HTTP API, solving the browser/OS limitations of direct BLE printing.**
+BLE Printer Bridge is a local Go service for developers who need reliable ESC/POS receipt printing to BLE printers from web or desktop apps.
+It solves the last-mile problem where browsers and cross-platform runtimes can generate receipt data but cannot safely/reliably talk to local BLE hardware.
+Your app sends HTTP requests to `http://127.0.0.1:<PORT>`, and this bridge handles BLE scan/connect/write operations on the same machine.
+Use it for POS, kiosk, order, queue, and other local receipt workflows where a lightweight self-hosted bridge is acceptable.
 
-BLE printer support from browsers and cross-platform app runtimes is often inconsistent or restricted. This project provides a stable localhost bridge so your app can print receipts without implementing low-level BLE logic in every client.
+## 30-second quick start (curl)
+
+```bash
+cp config.example.toml config.toml
+# Edit config.toml and set placeholders like:
+# - auth.api_key="<YOUR_LOCAL_API_KEY>"
+# - ble.printer_address="<BLE_PRINTER_MAC>"
+# - cors.allow_origins="<YOUR_WEB_APP_URL>"
+go run ./cmd/agent
+curl -sS http://127.0.0.1:17800/health
+curl -sS -X POST "http://127.0.0.1:17800/print/text" \
+  -H "x-api-key: <YOUR_LOCAL_API_KEY>" \
+  -H "Content-Type: application/json" \
+  -d '{"text":"Test receipt from BLE Printer Bridge"}'
+```
 
 ## Who this is for
 
@@ -12,41 +29,11 @@ This project is for developers building POS, kiosk, order, queue, or receipt wor
 - Electron or desktop helper apps
 - Local line-of-business tools that can call HTTP APIs
 
-Use it when you want one small local service that handles BLE discovery/connection and ESC/POS writes, while your app stays focused on business logic.
+Use it when you want one local service to handle BLE discovery/connection and ESC/POS writes, while your app stays focused on business logic.
 
-## Quick start
+## Why this exists
 
-1. **Set up config**
-
-```powershell
-Copy-Item .\config.example.toml .\config.toml
-```
-
-2. **Edit `config.toml`**
-   - Set `auth.api_key`
-   - Set BLE printer details (`printer_address`, service/characteristic UUIDs) as needed
-
-3. **Run the bridge**
-
-```powershell
-go run .\cmd\agent
-```
-
-4. **Verify service health**
-
-```powershell
-Invoke-RestMethod http://127.0.0.1:17800/health
-```
-
-5. **Send a test print**
-
-```powershell
-Invoke-RestMethod http://127.0.0.1:17800/print/text `
-  -Method POST `
-  -Headers @{ "x-api-key"="your-local-api-key" } `
-  -Body (@{ text = "Hello from BLE Printer Bridge" } | ConvertTo-Json) `
-  -ContentType "application/json"
-```
+Browsers and many desktop runtimes have intentional limits around direct Bluetooth access, and BLE printer behavior varies by OS and hardware stack. In practice, this makes direct in-app BLE printing brittle or unavailable. This bridge isolates BLE complexity into one localhost process with a stable HTTP contract.
 
 ## Features
 
@@ -73,15 +60,11 @@ Invoke-RestMethod http://127.0.0.1:17800/print/text `
 - Your environment already has a managed print spooler or printer gateway
 - You need vendor SDK features beyond standard ESC/POS operations
 
-## Why this exists
+## When NOT to use this
 
-Many teams can generate receipt data but get blocked on the last mile: secure, reliable communication with local BLE receipt printers from modern app runtimes. This bridge isolates that hardware complexity into one local process.
-
-## When not to use it
-
-- If you cannot run local companion software on the client machine
-- If your printers are not BLE-capable
-- If your use case requires cloud-only, zero-local-install architecture
+- You cannot install/run local companion software on the client machine
+- You require a cloud-only architecture with no localhost component
+- Your printers are not BLE-capable or do not use ESC/POS-compatible commands
 
 ## Requirements
 
@@ -119,7 +102,7 @@ Environment variable overrides:
 All endpoints except `/health` require:
 
 ```http
-x-api-key: <your_api_key>
+x-api-key: <YOUR_LOCAL_API_KEY>
 ```
 
 ### Health
@@ -144,8 +127,13 @@ x-api-key: <your_api_key>
 - `GET /config`
 - `POST /config`
 
+## Repository hygiene
+
+- Treat `config.toml` as machine-local and sensitive; do not commit it.
+- Keep `config.example.toml` as the only tracked template.
+- Keep real API keys, local BLE addresses, and environment-specific origins out of version control.
+
 ## Notes
 
-- Keep real `config.toml` values private.
 - If `logging.file_path` points to a missing directory, it is created automatically.
 - BLE scan is single-flight; concurrent scans are rejected.
