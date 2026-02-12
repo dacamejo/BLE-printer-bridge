@@ -1,4 +1,6 @@
 # BLE Printer Bridge
+![License](https://img.shields.io/github/license/dacamejo/BLE-printer-bridge)
+![Go Version](https://img.shields.io/github/go-mod/go-version/dacamejo/BLE-printer-bridge)
 
 BLE Printer Bridge is a local Go service for developers who need reliable ESC/POS receipt printing to BLE printers from web or desktop apps.
 It solves the last-mile problem where browsers and cross-platform runtimes can generate receipt data but cannot safely/reliably talk to local BLE hardware.
